@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hollow Parry — Protótipo</title>
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <main class="tela">
+    <h1 class="titulo">Hollow Parry</h1>
+
+    <!-- Área onde o jogo é desenhado -->
+    <div class="moldura">
+      <canvas id="jogo" width="960" height="540" aria-label="Tela do jogo"></canvas>
+    </div>
+
+    <!-- Botões para celular -->
+    <div class="controles">
+      <button id="btn-esq" class="botao" type="button" aria-label="Andar para a esquerda">◀</button>
+      <button id="btn-dir" class="botao" type="button" aria-label="Andar para a direita">▶</button>
+      <button id="btn-pulo" class="botao" type="button">Pular</button>
+      <button id="btn-aparar" class="botao botao-aparar" type="button">Aparar</button>
+    </div>
+
+    <p class="dica">
+      Computador: setas ou A/D andam · Espaço ou W pula · J ou Z apara.
+    </p>
+  </main>
+
+  <script src="jogo.js"></script>
+</body>
+</html>

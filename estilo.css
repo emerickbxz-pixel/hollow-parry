@@ -1,0 +1,97 @@
+/* Cores principais do jogo (mude aqui se quiser outro visual) */
+:root {
+  --fundo: #060818;
+  --painel: #0e1236;
+  --linha: #262c5e;
+  --texto: #eef0fb;
+  --dourado: #ffd34d;
+  --roxo: #7c6cff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+}
+
+/* Coluna central: ocupa a largura do celular com 16px de margem */
+.tela {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.titulo {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  color: var(--dourado);
+}
+
+/* Moldura da tela do jogo: mantém a proporção 16:9 */
+.moldura {
+  border: 1px solid var(--linha);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+}
+
+#jogo {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: none; /* impede o celular de rolar a página ao tocar no jogo */
+}
+
+/* Botões: 3 pequenos e 1 maior para APARAR */
+.controles {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1.4fr;
+  gap: 8px;
+}
+
+.botao {
+  min-height: 58px;
+  border-radius: 14px;
+  border: 1px solid var(--linha);
+  background: var(--painel);
+  color: var(--texto);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  touch-action: manipulation;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.botao:active {
+  transform: scale(0.96);
+  background: #1c2360;
+}
+
+.botao-aparar {
+  background: #3b2f7a;
+  border-color: var(--roxo);
+  font-size: 16px;
+}
+
+.dica {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #9aa0c7;
+  text-align: center;
+}
