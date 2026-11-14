@@ -35,12 +35,10 @@ Depois, no celular, acesse `http://IP-DO-COMPUTADOR:8000`.
 
 ## Arquivos
 
-- `index.html`: a página e os botões da tela.
-- `estilo.css`: as cores e o layout para celular.
-- `jogo.js`: toda a lógica do jogo (movimento, inimigos, aparadas, desenho).
+- `index.html`: o jogo inteiro. O CSS (layout e cores) e o JavaScript (toda a lógica) ficam dentro dele, então basta esse arquivo para abrir o jogo.
 
 ## Como ajustar o jogo
 
-As configurações ficam no topo do arquivo `jogo.js`, na parte "Configurações".
+As configurações ficam no `index.html`, dentro da tag `<script>`, na parte "Configurações".
 Por exemplo, para o inimigo bater mais devagar, aumente o `tempoPreparo` dele.
 Para deixar a aparada mais fácil, aumente `JANELA_APARAR`.

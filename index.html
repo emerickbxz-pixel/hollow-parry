@@ -4,9 +4,110 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hollow Parry — Protótipo</title>
-  <link rel="stylesheet" href="estilo.css">
+  <!-- Estilo do jogo: tudo no mesmo arquivo, para abrir sem depender de outros arquivos -->
+  <style>
+/* Cores principais do jogo (mude aqui se quiser outro visual) */
+:root {
+  --fundo: #060818;
+  --painel: #0e1236;
+  --linha: #262c5e;
+  --texto: #eef0fb;
+  --dourado: #ffd34d;
+  --roxo: #7c6cff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+}
+
+/* Coluna central: ocupa a largura do celular com 16px de margem */
+.tela {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.titulo {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  color: var(--dourado);
+}
+
+/* Moldura da tela do jogo: mantém a proporção 16:9 */
+.moldura {
+  border: 1px solid var(--linha);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+}
+
+#jogo {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: none; /* impede o celular de rolar a página ao tocar no jogo */
+}
+
+/* Botões: 3 pequenos e 1 maior para APARAR */
+.controles {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1.4fr;
+  gap: 8px;
+}
+
+.botao {
+  min-height: 58px;
+  border-radius: 14px;
+  border: 1px solid var(--linha);
+  background: var(--painel);
+  color: var(--texto);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  touch-action: manipulation;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.botao:active {
+  transform: scale(0.96);
+  background: #1c2360;
+}
+
+.botao-aparar {
+  background: #3b2f7a;
+  border-color: var(--roxo);
+  font-size: 16px;
+}
+
+.dica {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #9aa0c7;
+  text-align: center;
+}
+  </style>
 </head>
 <body>
+  <noscript>Este jogo precisa de JavaScript ligado no navegador.</noscript>
+
   <main class="tela">
     <h1 class="titulo">Hollow Parry</h1>
 
@@ -28,6 +129,737 @@
     </p>
   </main>
 
-  <script src="jogo.js"></script>
+  <!-- Lógica do jogo: tudo no mesmo arquivo -->
+  <script>
+// =====================================================================
+// HOLLOW PARRY — protótipo de jogo 2D
+//
+// Regra principal: o protagonista NÃO tem arma. O único "ataque" dele é
+// APARAR. Quando o inimigo vai bater, o jogador aperta APARAR no tempo
+// certo. A aparada devolve o golpe para o inimigo, e cada aparada
+// perfeita seguida DOBRA o dano devolvido: x1, x2, x4, x8...
+// Se o jogador levar um golpe, ou apertar APARAR fora de hora, a sequência zera.
+// =====================================================================
+
+
+// ---------- Configurações: mexa aqui para ajustar o jogo ----------
+
+const LARGURA = 480;             // largura da tela do jogo (em "pixels do jogo")
+const ALTURA = 270;              // altura da tela do jogo
+const CHAO_Y = 230;              // linha do chão, onde os personagens ficam em pé
+const GRAVIDADE = 1800;          // quão rápido o protagonista cai
+const VELOCIDADE_PULO = -620;    // força do pulo (negativo = para cima)
+const VELOCIDADE_ANDAR = 170;    // velocidade de andar
+const VIDA_MAXIMA = 5;           // quantidade de corações
+const DANO_BASE = 1;             // dano de um golpe, antes de ser multiplicado
+const JANELA_APARAR = 0.12;      // segundos antes e depois do golpe em que a aparada conta
+const MULTIPLICADOR_MAXIMO = 16; // o dobro para de crescer neste valor
+const TEMPO_INVENCIVEL = 1.0;    // segundos sem levar dano depois de um golpe
+const TEMPO_ESCUDO = 0.18;       // tempo com o escudo levantado depois de apertar APARAR
+const PAUSA_ENTRE_ONDAS = 2.5;   // segundos de espera entre uma onda e a próxima
+
+const TIPOS_INIMIGO = {
+  bandido: {
+    largura: 24, altura: 36,
+    vida: 12, velocidade: 60,
+    alcance: 70, tempoPreparo: 0.7, recarga: 2.0,
+    voa: false,
+  },
+  espirito: {
+    largura: 26, altura: 26,
+    vida: 8, velocidade: 90,
+    alcance: 110, tempoPreparo: 0.9, recarga: 2.6,
+    voa: true,
+  },
+};
+
+// Plataformas: lugares onde o protagonista pode pousar por cima
+const PLATAFORMAS = [{ x: 300, y: 170, largura: 110, altura: 10 }];
+
+
+// ---------- Tela ----------
+
+const canvas = document.getElementById('jogo');
+const ctx = canvas.getContext('2d');
+
+// Desenha com resolução dobrada para ficar nítido em celular
+canvas.width = LARGURA * 2;
+canvas.height = ALTURA * 2;
+ctx.setTransform(2, 0, 0, 2, 0, 0);
+
+
+// ---------- Controles ----------
+
+// Qual tecla faz qual ação
+const mapaTeclas = {
+  ArrowLeft: 'esq', KeyA: 'esq',
+  ArrowRight: 'dir', KeyD: 'dir',
+  Space: 'pulo', ArrowUp: 'pulo', KeyW: 'pulo',
+  KeyJ: 'aparar', KeyZ: 'aparar', ShiftLeft: 'aparar', ShiftRight: 'aparar',
+  Enter: 'iniciar',
+};
+
+// "segurando": botão de andar que está apertado agora
+const segurando = { esq: false, dir: false };
+// "pedidos": apertou agora (pular, aparar, começar). Some depois de cada quadro.
+const pedidos = { pulo: false, aparar: false, iniciar: false };
+
+function acionar(acao, apertado) {
+  if (acao === 'esq' || acao === 'dir') segurando[acao] = apertado;
+  if (apertado && (acao === 'pulo' || acao === 'aparar' || acao === 'iniciar')) {
+    pedidos[acao] = true;
+  }
+}
+
+window.addEventListener('keydown', (evento) => {
+  const acao = mapaTeclas[evento.code];
+  if (!acao) return;
+  evento.preventDefault(); // evita a página rolar com Espaço e setas
+  if (!evento.repeat) acionar(acao, true);
+});
+
+window.addEventListener('keyup', (evento) => {
+  const acao = mapaTeclas[evento.code];
+  if (acao) acionar(acao, false);
+});
+
+// Liga um botão da tela às ações (funciona com toque e com mouse)
+function ligarBotao(id, acao) {
+  const botao = document.getElementById(id);
+  botao.addEventListener('pointerdown', (evento) => {
+    evento.preventDefault();
+    acionar(acao, true);
+  });
+  const soltar = (evento) => {
+    evento.preventDefault();
+    acionar(acao, false);
+  };
+  botao.addEventListener('pointerup', soltar);
+  botao.addEventListener('pointerleave', soltar);
+  botao.addEventListener('pointercancel', soltar);
+}
+
+ligarBotao('btn-esq', 'esq');
+ligarBotao('btn-dir', 'dir');
+ligarBotao('btn-pulo', 'pulo');
+ligarBotao('btn-aparar', 'aparar');
+
+
+// ---------- Estado do jogo ----------
+
+let estadoJogo = 'titulo'; // 'titulo' | 'jogando' | 'fim'
+let jogador;
+let inimigos = [];
+let filaDeSpawn = [];       // inimigos que ainda vão aparecer nesta onda
+let tempoAteSpawn = 0;
+let tempoProximaOnda = 0;
+let tempoFim = 0;
+let onda = 0;
+let abates = 0;
+let sequencia = 0;          // quantas aparadas perfeitas seguidas
+let sequenciaMaxima = 0;
+let textos = [];            // textos que flutuam (ex.: "APARADA!")
+let aviso = null;           // aviso grande no meio da tela (ex.: "Onda 2")
+let tremor = 0;             // tempo que a tela treme quando o jogador apanha
+
+// Multiplicador da aparada número "n" da sequência: x1, x2, x4, x8... até o limite
+function multiplicadorPara(n) {
+  return Math.min(2 ** Math.max(n - 1, 0), MULTIPLICADOR_MAXIMO);
+}
+
+// Começa um jogo novo do zero
+function novoJogo() {
+  jogador = {
+    x: 60, y: CHAO_Y - 34, largura: 22, altura: 34,
+    vx: 0, vy: 0, noChao: true,
+    vida: VIDA_MAXIMA,
+    invencivel: 0,  // tempo que falta sem poder levar dano
+    tempoEscudo: 0, // tempo que falta com o escudo levantado
+    direcao: 1,     // 1 = olhando para a direita, -1 = para a esquerda
+  };
+  inimigos = [];
+  filaDeSpawn = [];
+  tempoAteSpawn = 0;
+  tempoFim = 0;
+  onda = 0;
+  abates = 0;
+  sequencia = 0;
+  sequenciaMaxima = 0;
+  textos = [];
+  tremor = 0;
+  iniciarOnda();
+  estadoJogo = 'jogando';
+}
+
+function iniciarOnda() {
+  onda += 1;
+  filaDeSpawn = [];
+  // Onda 1: 2 bandidos. Cada onda traz mais um bandido,
+  // e a cada 2 ondas aparece um espírito.
+  for (let i = 0; i < onda + 1; i++) filaDeSpawn.push('bandido');
+  for (let i = 0; i < Math.floor(onda / 2); i++) filaDeSpawn.push('espirito');
+  tempoAteSpawn = 1.0;
+  tempoProximaOnda = PAUSA_ENTRE_ONDAS;
+  aviso = { texto: 'Onda ' + onda, tempo: 2 };
+}
+
+function criarInimigo(tipo) {
+  const cfg = TIPOS_INIMIGO[tipo];
+  const daEsquerda = Math.random() < 0.5;
+  return {
+    tipo,
+    largura: cfg.largura,
+    altura: cfg.altura,
+    x: daEsquerda ? 4 : LARGURA - cfg.largura - 4,
+    y: cfg.voa ? 110 : CHAO_Y - cfg.altura,
+    vida: cfg.vida,
+    vidaMaxima: cfg.vida,
+    estado: 'andar',              // 'andar' | 'preparar' | 'atordoado'
+    direcao: 1,                   // para onde está virado (1 = direita)
+    recarga: 1 + Math.random(),   // tempo até poder atacar de novo
+    tempoAtaque: 0,               // contagem regressiva do golpe (0 = hora do golpe)
+    tempoAtordoado: 0,
+    tempoVida: Math.random() * 5, // usado para o espírito flutuar
+  };
+}
+
+
+// ---------- Atualização (lógica) ----------
+
+function atualizar(dt) {
+  if (estadoJogo === 'titulo') {
+    if (pedidos.aparar || pedidos.iniciar || pedidos.pulo) novoJogo();
+  } else if (estadoJogo === 'fim') {
+    tempoFim -= dt;
+    if (tempoFim <= 0 && (pedidos.aparar || pedidos.iniciar || pedidos.pulo)) novoJogo();
+  } else {
+    atualizarJogador(dt);
+    atualizarOnda(dt);
+    for (const inimigo of inimigos) atualizarInimigo(inimigo, dt);
+    inimigos = inimigos.filter(removerSeMorto);
+    if (jogador.vida <= 0) {
+      estadoJogo = 'fim';
+      tempoFim = 1.0; // espera 1 segundo antes de aceitar um novo começo
+    }
+  }
+
+  atualizarEfeitos(dt);
+
+  // Os pedidos valem só para este quadro
+  pedidos.pulo = false;
+  pedidos.aparar = false;
+  pedidos.iniciar = false;
+}
+
+function atualizarJogador(dt) {
+  const p = jogador;
+
+  // 1. Andar (setas, A/D ou botões da tela)
+  const direcao = (segurando.dir ? 1 : 0) - (segurando.esq ? 1 : 0);
+  p.vx = direcao * VELOCIDADE_ANDAR;
+  if (direcao !== 0) p.direcao = direcao;
+
+  // 2. Pular (só se estiver no chão ou em cima de uma plataforma)
+  if (pedidos.pulo && p.noChao) {
+    p.vy = VELOCIDADE_PULO;
+    p.noChao = false;
+  }
+
+  // 3. Aparar
+  if (pedidos.aparar) tentarAparar();
+
+  // 4. Contadores de tempo
+  if (p.tempoEscudo > 0) p.tempoEscudo -= dt;
+  if (p.invencivel > 0) p.invencivel -= dt;
+
+  // 5. Física: gravidade e movimento
+  const baseAntes = p.y + p.altura;
+  p.vy += GRAVIDADE * dt;
+  p.x += p.vx * dt;
+  p.y += p.vy * dt;
+  p.x = Math.max(0, Math.min(LARGURA - p.largura, p.x));
+
+  // 6. Pousar em plataformas (só quando cai por cima)
+  p.noChao = false;
+  if (p.vy >= 0) {
+    for (const plataforma of PLATAFORMAS) {
+      const sobreAPlataforma = p.x + p.largura > plataforma.x && p.x < plataforma.x + plataforma.largura;
+      const baseAgora = p.y + p.altura;
+      if (sobreAPlataforma && baseAntes <= plataforma.y + 1 && baseAgora >= plataforma.y) {
+        p.y = plataforma.y - p.altura;
+        p.vy = 0;
+        p.noChao = true;
+      }
+    }
+  }
+
+  // 7. Chão
+  if (p.y + p.altura >= CHAO_Y) {
+    p.y = CHAO_Y - p.altura;
+    p.vy = 0;
+    p.noChao = true;
+  }
+}
+
+// Procura o inimigo que está no momento certo do golpe e faz a aparada
+function tentarAparar() {
+  jogador.tempoEscudo = TEMPO_ESCUDO;
+
+  let alvo = null;
+  let menorDiferenca = Infinity;
+  for (const inimigo of inimigos) {
+    if (inimigo.estado !== 'preparar') continue;
+    const diferenca = Math.abs(inimigo.tempoAtaque);
+    if (diferenca <= JANELA_APARAR && diferenca < menorDiferenca) {
+      alvo = inimigo;
+      menorDiferenca = diferenca;
+    }
+  }
+
+  // Apertou fora da hora: a sequência quebra
+  if (!alvo) {
+    if (sequencia > 0) {
+      mostrarTexto('Errou o tempo!', jogador.x, jogador.y - 10, '#ff9d6b');
+    }
+    sequencia = 0;
+    return;
+  }
+
+  // Aparada perfeita: o golpe volta para o inimigo, dobrado
+  sequencia += 1;
+  sequenciaMaxima = Math.max(sequenciaMaxima, sequencia);
+  const multiplicador = multiplicadorPara(sequencia);
+  const dano = DANO_BASE * multiplicador;
+
+  alvo.vida -= dano;
+  alvo.estado = 'atordoado';
+  alvo.tempoAtordoado = 0.8;
+  mostrarTexto('APARADA! x' + multiplicador + ' (-' + dano + ')', alvo.x + alvo.largura / 2, alvo.y - 24, '#ffd34d');
+}
+
+function atualizarInimigo(inimigo, dt) {
+  const cfg = TIPOS_INIMIGO[inimigo.tipo];
+  const centroJogador = jogador.x + jogador.largura / 2;
+  const centroInimigo = inimigo.x + inimigo.largura / 2;
+  const distancia = Math.abs(centroJogador - centroInimigo);
+  inimigo.direcao = Math.sign(centroJogador - centroInimigo) || 1;
+  inimigo.tempoVida += dt;
+
+  if (cfg.voa) {
+    inimigo.y = 110 + Math.sin(inimigo.tempoVida * 2.5) * 8; // sobe e desce
+  }
+
+  // Caso 1: atordoado pela aparada, não faz nada
+  if (inimigo.estado === 'atordoado') {
+    inimigo.tempoAtordoado -= dt;
+    if (inimigo.tempoAtordoado <= 0) {
+      inimigo.estado = 'andar';
+      inimigo.recarga = cfg.recarga;
+    }
+    return;
+  }
+
+  // Caso 2: está preparando o golpe
+  if (inimigo.estado === 'preparar') {
+    inimigo.tempoAtaque -= dt;
+    // Passou da janela de aparada: o golpe acontece
+    if (inimigo.tempoAtaque < -JANELA_APARAR) {
+      inimigo.estado = 'andar';
+      inimigo.recarga = cfg.recarga;
+      if (distancia <= cfg.alcance + 20) {
+        levarGolpe();
+      } else {
+        mostrarTexto('Errou!', inimigo.x + inimigo.largura / 2, inimigo.y - 16, '#9aa0c7');
+      }
+    }
+    return;
+  }
+
+  // Caso 3: andando e perseguindo o jogador
+  if (distancia > cfg.alcance * 0.8) {
+    inimigo.x += inimigo.direcao * cfg.velocidade * dt;
+  }
+  inimigo.x = Math.max(0, Math.min(LARGURA - inimigo.largura, inimigo.x));
+
+  if (distancia <= cfg.alcance && inimigo.recarga <= 0) {
+    inimigo.estado = 'preparar';
+    inimigo.tempoAtaque = cfg.tempoPreparo;
+  } else {
+    inimigo.recarga -= dt;
+  }
+}
+
+// O jogador apanhou de um golpe
+function levarGolpe() {
+  if (jogador.invencivel > 0) return;
+  jogador.vida -= DANO_BASE;
+  jogador.invencivel = TEMPO_INVENCIVEL;
+  tremor = 0.25;
+  mostrarTexto(sequencia > 0 ? 'Golpe! Sequência perdida' : 'Golpe!', jogador.x, jogador.y - 12, '#ff6b6b');
+  sequencia = 0;
+}
+
+// Controla as ondas: solta os inimigos da fila e começa a próxima onda
+function atualizarOnda(dt) {
+  if (filaDeSpawn.length > 0) {
+    tempoAteSpawn -= dt;
+    if (tempoAteSpawn <= 0) {
+      inimigos.push(criarInimigo(filaDeSpawn.shift()));
+      tempoAteSpawn = 1.6;
+    }
+  } else if (inimigos.length === 0) {
+    // Onda limpa: espera um pouco e começa a próxima
+    tempoProximaOnda -= dt;
+    if (tempoProximaOnda <= 0) {
+      jogador.vida = Math.min(VIDA_MAXIMA, jogador.vida + 1); // recupera 1 coração
+      iniciarOnda();
+    }
+  }
+}
+
+// Tira da lista os inimigos que morreram
+function removerSeMorto(inimigo) {
+  if (inimigo.vida > 0) return true;
+  abates += 1;
+  mostrarTexto('Abatido!', inimigo.x + inimigo.largura / 2, inimigo.y - 16, '#7CFC00');
+  return false;
+}
+
+// Textos que sobem e somem, e o aviso grande da onda
+function mostrarTexto(texto, x, y, cor) {
+  textos.push({ texto, x, y, cor, tempo: 1.0 });
+}
+
+function atualizarEfeitos(dt) {
+  if (tremor > 0) tremor -= dt;
+  if (aviso) {
+    aviso.tempo -= dt;
+    if (aviso.tempo <= 0) aviso = null;
+  }
+  for (const t of textos) {
+    t.tempo -= dt;
+    t.y -= 22 * dt;
+  }
+  textos = textos.filter((t) => t.tempo > 0);
+}
+
+
+// ---------- Desenho ----------
+
+// Árvores do fundo (geradas uma vez, para o cenário ficar sempre igual)
+const arvores = [];
+for (let i = 0; i < 14; i++) {
+  arvores.push({ x: i * 38 - 10, altura: 80 + ((i * 37) % 60), camada: i % 2 });
+}
+
+function desenharCenario() {
+  // Céu escuro
+  const ceu = ctx.createLinearGradient(0, 0, 0, CHAO_Y);
+  ceu.addColorStop(0, '#070a1c');
+  ceu.addColorStop(1, '#1b2250');
+  ctx.fillStyle = ceu;
+  ctx.fillRect(0, 0, LARGURA, ALTURA);
+
+  // Lua (fica abaixo dos textos do topo para não cobrir o placar)
+  ctx.fillStyle = 'rgba(230, 236, 255, 0.85)';
+  ctx.beginPath();
+  ctx.arc(430, 104, 14, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Árvores (as de trás são menores e mais claras)
+  for (const a of arvores) {
+    const escala = a.camada === 0 ? 0.8 : 1;
+    ctx.fillStyle = a.camada === 0 ? '#161a3a' : '#0c0f26';
+    ctx.beginPath();
+    ctx.moveTo(a.x, CHAO_Y);
+    ctx.lineTo(a.x + 20 * escala, CHAO_Y - a.altura * escala);
+    ctx.lineTo(a.x + 40 * escala, CHAO_Y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Chão
+  ctx.fillStyle = '#100e26';
+  ctx.fillRect(0, CHAO_Y, LARGURA, ALTURA - CHAO_Y);
+  ctx.fillStyle = '#463f7a';
+  ctx.fillRect(0, CHAO_Y, LARGURA, 3);
+
+  // Plataformas
+  for (const p of PLATAFORMAS) {
+    ctx.fillStyle = '#2a2650';
+    ctx.fillRect(p.x, p.y, p.largura, p.altura);
+    ctx.fillStyle = '#463f7a';
+    ctx.fillRect(p.x, p.y, p.largura, 2);
+  }
+}
+
+// Protagonista: monge com capuz e escudo
+function desenharJogador() {
+  const p = jogador;
+  // Pisca enquanto está invencível
+  if (p.invencivel > 0 && Math.floor(p.invencivel * 12) % 2 === 0) return;
+
+  const cx = p.x + p.largura / 2;
+  // Pernas
+  ctx.fillStyle = '#2a2440';
+  ctx.fillRect(p.x + 5, p.y + 28, 4, 6);
+  ctx.fillRect(p.x + 13, p.y + 28, 4, 6);
+  // Manto (roupa clara de monge)
+  ctx.fillStyle = '#d8d2b8';
+  ctx.fillRect(p.x + 4, p.y + 14, 14, 15);
+  // Capuz
+  ctx.fillStyle = '#3a2e5c';
+  ctx.beginPath();
+  ctx.arc(cx, p.y + 9, 7, 0, Math.PI * 2);
+  ctx.fill();
+  // Olho
+  ctx.fillStyle = '#ffe9a8';
+  ctx.fillRect(cx + p.direcao * 2 - 1, p.y + 8, 2, 2);
+
+  desenharEscudo(p);
+}
+
+// Escudo: fica baixo normalmente e sobe quando você aperta APARAR
+function desenharEscudo(p) {
+  const levantado = p.tempoEscudo > 0;
+  const sx = p.x + p.largura / 2 + p.direcao * (levantado ? 14 : 9);
+  const sy = levantado ? p.y + 14 : p.y + 22;
+  const raio = levantado ? 10 : 8;
+
+  if (levantado) {
+    ctx.strokeStyle = 'rgba(255, 226, 122, 0.55)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(sx, sy, raio + 5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(sx, sy, raio, 0, Math.PI * 2);
+  ctx.fillStyle = levantado ? '#ffe27a' : '#b8a04a';
+  ctx.fill();
+  ctx.strokeStyle = '#2a2440';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // Cruz no escudo
+  ctx.fillStyle = '#2a2440';
+  ctx.fillRect(sx - 1, sy - 5, 2, 10);
+  ctx.fillRect(sx - 5, sy - 1, 10, 2);
+}
+
+// Inimigos: bandido (com porrete) e espírito (bola de luz)
+function desenharInimigo(inimigo) {
+  const cx = inimigo.x + inimigo.largura / 2;
+  const frente = inimigo.direcao;
+  const atordoado = inimigo.estado === 'atordoado';
+
+  if (inimigo.tipo === 'bandido') {
+    // Pernas
+    ctx.fillStyle = '#241a16';
+    ctx.fillRect(inimigo.x + 5, inimigo.y + 28, 5, 8);
+    ctx.fillRect(inimigo.x + 14, inimigo.y + 28, 5, 8);
+    // Corpo
+    ctx.fillStyle = atordoado ? '#9aa0c7' : '#7a4a2c';
+    ctx.fillRect(inimigo.x + 4, inimigo.y + 12, 16, 17);
+    // Cabeça
+    ctx.fillStyle = '#d7a77a';
+    ctx.beginPath();
+    ctx.arc(cx, inimigo.y + 8, 7, 0, Math.PI * 2);
+    ctx.fill();
+    // Lenço vermelho
+    ctx.fillStyle = '#c0392b';
+    ctx.fillRect(inimigo.x + 3, inimigo.y + 12, 18, 3);
+    // Braço: sobe com o porrete quando vai bater
+    const xBraco = cx + frente * 10 - 2;
+    if (inimigo.estado === 'preparar') {
+      ctx.fillStyle = '#7a4a2c';
+      ctx.fillRect(xBraco, inimigo.y - 6, 4, 16);
+      ctx.fillStyle = '#5a3a22';
+      ctx.fillRect(xBraco - 2, inimigo.y - 10, 8, 5);
+    } else {
+      ctx.fillStyle = '#7a4a2c';
+      ctx.fillRect(xBraco, inimigo.y + 16, 4, 9);
+    }
+  } else {
+    // Espírito: bola de luz com cauda
+    const cy = inimigo.y + 13;
+    ctx.fillStyle = 'rgba(111, 231, 255, 0.35)';
+    ctx.beginPath();
+    ctx.moveTo(cx - frente * 8, cy - 3);
+    ctx.lineTo(cx - frente * 26, cy + 3);
+    ctx.lineTo(cx - frente * 8, cy + 6);
+    ctx.fill();
+    const brilho = ctx.createRadialGradient(cx, cy, 2, cx, cy, 14);
+    brilho.addColorStop(0, atordoado ? '#dfe3ff' : '#ffffff');
+    brilho.addColorStop(0.45, atordoado ? '#8a8fbf' : '#6fe7ff');
+    brilho.addColorStop(1, 'rgba(111, 231, 255, 0)');
+    ctx.fillStyle = brilho;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Barra de vida (só aparece depois do primeiro golpe)
+  if (inimigo.vida < inimigo.vidaMaxima) {
+    const largura = inimigo.largura * (Math.max(inimigo.vida, 0) / inimigo.vidaMaxima);
+    const yBarra = inimigo.y + inimigo.altura + 3;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(inimigo.x, yBarra, inimigo.largura, 3);
+    ctx.fillStyle = '#ffd34d';
+    ctx.fillRect(inimigo.x, yBarra, largura, 3);
+  }
+}
+
+// Anel que encolhe até o golpe. Fica verde quando dá para aparar.
+function desenharAvisoDoGolpe(inimigo) {
+  if (inimigo.estado !== 'preparar') return;
+  const cfg = TIPOS_INIMIGO[inimigo.tipo];
+  const cx = inimigo.x + inimigo.largura / 2;
+  const cy = inimigo.y + inimigo.altura / 2;
+  const dentroDaJanela = Math.abs(inimigo.tempoAtaque) <= JANELA_APARAR;
+
+  const raio = 6 + (Math.max(inimigo.tempoAtaque, 0) / cfg.tempoPreparo) * 22;
+  ctx.lineWidth = dentroDaJanela ? 3 : 1.5;
+  ctx.strokeStyle = dentroDaJanela ? '#7CFC00' : '#eef0fb';
+  ctx.beginPath();
+  ctx.arc(cx, cy, raio, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Sinal de perigo sobre a cabeça
+  ctx.fillStyle = '#ff5a5a';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('!', cx, inimigo.y - 18);
+}
+
+function desenharTextos() {
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 12px sans-serif';
+  for (const t of textos) {
+    ctx.globalAlpha = Math.min(1, t.tempo * 2);
+    ctx.fillStyle = t.cor;
+    ctx.fillText(t.texto, t.x, t.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function desenharAvisoGrande() {
+  if (estadoJogo !== 'jogando' || !aviso) return;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd34d';
+  ctx.font = 'bold 26px sans-serif';
+  ctx.fillText(aviso.texto, LARGURA / 2, 120);
+}
+
+// Corações e contadores no topo da tela
+function desenharCoracao(x, y, cheio) {
+  ctx.fillStyle = cheio ? '#ff5d7a' : '#3a2d4a';
+  ctx.beginPath();
+  ctx.moveTo(x, y + 4);
+  ctx.bezierCurveTo(x - 7, y - 4, x - 8, y + 6, x, y + 11);
+  ctx.bezierCurveTo(x + 8, y + 6, x + 7, y - 4, x, y + 4);
+  ctx.fill();
+}
+
+function desenharHUD() {
+  for (let k = 0; k < VIDA_MAXIMA; k++) {
+    desenharCoracao(14 + k * 18, 16, k < jogador.vida);
+  }
+
+  ctx.textAlign = 'left';
+  ctx.font = '12px sans-serif';
+  ctx.fillStyle = '#9aa0c7';
+  ctx.fillText('Onda ' + onda + '  ·  Abates ' + abates, 12, 40);
+
+  ctx.textAlign = 'right';
+  ctx.font = 'bold 13px sans-serif';
+  ctx.fillStyle = '#eef0fb';
+  ctx.fillText('Sequência: ' + sequencia, LARGURA - 12, 22);
+  ctx.fillStyle = '#ffd34d';
+  ctx.fillText('Próxima aparada: x' + multiplicadorPara(sequencia + 1), LARGURA - 12, 40);
+}
+
+function escurecer(opacidade) {
+  ctx.fillStyle = 'rgba(6, 8, 24, ' + opacidade + ')';
+  ctx.fillRect(0, 0, LARGURA, ALTURA);
+}
+
+function desenharTelaTitulo() {
+  escurecer(0.7);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd34d';
+  ctx.font = 'bold 34px sans-serif';
+  ctx.fillText('HOLLOW PARRY', LARGURA / 2, 88);
+  ctx.fillStyle = '#eef0fb';
+  ctx.font = '14px sans-serif';
+  ctx.fillText('Você não tem espada. Só o seu escudo.', LARGURA / 2, 124);
+  ctx.fillText('Aperte APARAR quando o anel ficar verde.', LARGURA / 2, 144);
+  ctx.fillText('Cada aparada perfeita seguida dobra o dano devolvido.', LARGURA / 2, 164);
+  if (Math.floor(performance.now() / 500) % 2 === 0) {
+    ctx.fillStyle = '#7CFC00';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('Toque em APARAR para começar', LARGURA / 2, 214);
+  }
+}
+
+function desenharTelaFim() {
+  escurecer(0.75);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ff6b7a';
+  ctx.font = 'bold 30px sans-serif';
+  ctx.fillText('Você caiu', LARGURA / 2, 100);
+  ctx.fillStyle = '#eef0fb';
+  ctx.font = '15px sans-serif';
+  ctx.fillText('Onda alcançada: ' + onda, LARGURA / 2, 136);
+  ctx.fillText('Inimigos abatidos: ' + abates, LARGURA / 2, 158);
+  ctx.fillText('Maior sequência de aparadas: ' + sequenciaMaxima, LARGURA / 2, 180);
+  if (tempoFim <= 0) {
+    ctx.fillStyle = '#7CFC00';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('Toque em APARAR para recomeçar', LARGURA / 2, 226);
+  }
+}
+
+function desenhar() {
+  ctx.save();
+  if (tremor > 0) {
+    ctx.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+  }
+  desenharCenario();
+  for (const inimigo of inimigos) {
+    desenharInimigo(inimigo);
+    desenharAvisoDoGolpe(inimigo);
+  }
+  desenharJogador();
+  desenharTextos();
+  desenharAvisoGrande();
+  ctx.restore();
+
+  desenharHUD();
+  if (estadoJogo === 'titulo') desenharTelaTitulo();
+  if (estadoJogo === 'fim') desenharTelaFim();
+}
+
+
+// ---------- Laço principal ----------
+
+let ultimoInstante = null;
+
+function laco(instante) {
+  if (ultimoInstante === null) ultimoInstante = instante;
+  // Tempo desde o quadro anterior, em segundos (limitado para o jogo não "pular" se a aba travar)
+  const dt = Math.min((instante - ultimoInstante) / 1000, 0.033);
+  ultimoInstante = instante;
+
+  atualizar(dt);
+  desenhar();
+  requestAnimationFrame(laco);
+}
+
+// Começa na tela de título, com o mundo montado e parado
+novoJogo();
+estadoJogo = 'titulo';
+aviso = null;
+requestAnimationFrame(laco);
+  </script>
 </body>
 </html>
